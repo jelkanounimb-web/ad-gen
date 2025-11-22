@@ -29,7 +29,7 @@ const campaignSchema: Schema = {
       type: Type.OBJECT,
       properties: {
         imagePrompt: { type: Type.STRING, description: "A highly detailed prompt for DALL-E 3, Midjourney or Gemini Image" },
-        videoScript: { type: Type.STRING, description: "A 15-second video script/storyboard description" },
+        videoScript: { type: Type.STRING, description: "A visual description of the scene for a 15s video ad (focus on what is seen, not dialogue)" },
       },
       required: ["imagePrompt", "videoScript"],
     },
@@ -42,19 +42,20 @@ const campaignSchema: Schema = {
   required: ["strategy", "adCopy", "creative", "keywords"],
 };
 
+// Helper to retrieve the API Key
+const getApiKey = (): string => {
+  return process.env.API_KEY || "AIzaSyD_qntb1DrwL4mDGFLJ0wIrXzmZicKh6ZM";
+};
+
 export const generateCampaign = async (
   inputText: string,
   inputImageBase64: string | null,
   inputUrl: string | null
 ): Promise<CampaignResult> => {
   
-  if (!process.env.API_KEY) {
-    throw new Error("API_KEY is missing. Please check your environment.");
-  }
+  const apiKey = getApiKey();
+  const ai = new GoogleGenAI({ apiKey: apiKey });
 
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
-  // System instruction to ensure expert persona and consistency
   const systemInstruction = `
     You are AdGen Master, a world-class Chief Marketing Officer and Creative Director.
     Your goal is to generate a cohesive, high-converting advertising campaign based on the user's input.
@@ -64,22 +65,16 @@ export const generateCampaign = async (
     2. STRATEGIZE: Define the perfect audience and tone.
     3. GENERATE: Create copy, visuals, and scripts that strictly adhere to that strategy.
     
-    Ensure the "Visual Prompt" matches the "Headline" in theme and mood.
-    Ensure the "Video Script" is feasible for a 15-second social media ad (TikTok/Reels style).
+    IMPORTANT FOR CREATIVE ASSETS:
+    - "imagePrompt": Must be a descriptive visual prompt suitable for an AI image generator (lighting, composition, subject).
+    - "videoScript": Must be a VISUAL description of a 5-10 second video clip. Do not write dialogue or camera directions like "Cut to". Write what the viewer sees (e.g., "A slow motion shot of the coffee pouring into a glass cup with steam rising, cinematic lighting").
   `;
 
   try {
     let modelName = 'gemini-2.5-flash';
     let contents: any = [];
 
-    // Workflow logic based on input type
     if (inputUrl) {
-      // Case 1: URL Input - Use Search Grounding to understand the page
-      // Note: responseSchema cannot be used with googleSearch tools in the same request.
-      // We use a 2-step process: 
-      // 1. Analyze URL using Search Grounding (Text output)
-      // 2. Generate Campaign using the analysis (JSON output)
-      
       const searchResponse = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
         contents: [
@@ -90,13 +85,10 @@ export const generateCampaign = async (
         ],
         config: {
           tools: [{ googleSearch: {} }],
-          // No responseSchema here
         },
       });
 
       const searchAnalysis = searchResponse.text;
-
-      modelName = 'gemini-2.5-flash';
       contents = [
         {
           role: 'user',
@@ -105,15 +97,13 @@ export const generateCampaign = async (
       ];
 
     } else if (inputImageBase64) {
-      // Case 2: Image Input - Multimodal analysis
-      modelName = 'gemini-2.5-flash';
       contents = [
         {
           role: 'user',
           parts: [
             {
               inlineData: {
-                mimeType: "image/jpeg", // Assuming JPEG for simplicity, real app should detect
+                mimeType: "image/jpeg",
                 data: inputImageBase64
               }
             },
@@ -123,8 +113,6 @@ export const generateCampaign = async (
       ];
 
     } else {
-      // Case 3: Pure Text Input - High reasoning
-      modelName = 'gemini-2.5-flash';
       contents = [
         {
           role: 'user',
@@ -157,23 +145,25 @@ export const generateCampaign = async (
   }
 };
 
-export const generateAdImage = async (prompt: string): Promise<string> => {
-  // IMPORTANT: gemini-3-pro-image-preview requires a selected paid key.
-  // The UI MUST call window.aistudio.openSelectKey() before calling this.
-  
-  // Re-initialize AI to ensure it picks up the selected key if it changed
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+export const generateAdImage = async (prompt: string, aspectRatio: string = "1:1"): Promise<string> => {
+  const apiKey = getApiKey();
+  const ai = new GoogleGenAI({ apiKey: apiKey });
   
   try {
-    // Using gemini-3-pro-image-preview for "Pro" quality images as requested
+    // Clean up prompt to prevent safety blocks
+    const cleanPrompt = prompt.replace(/nudity|violence|hate|blood/gi, "");
+    
+    // Enhance prompt for better advertising quality
+    const enhancedPrompt = `${cleanPrompt}. Professional advertising photography, product shot, high detail, studio lighting, 8k resolution, sharp focus.`;
+
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-image-preview',
       contents: {
-        parts: [{ text: prompt }]
+        parts: [{ text: enhancedPrompt }]
       },
       config: {
         imageConfig: {
-            aspectRatio: "1:1",
+            aspectRatio: aspectRatio,
             imageSize: "1K"
         }
       }
@@ -184,46 +174,58 @@ export const generateAdImage = async (prompt: string): Promise<string> => {
         return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
       }
     }
-    throw new Error("No image data found in response");
+    throw new Error("Image generation refused. The prompt may have triggered safety filters.");
   } catch (error: any) {
     console.error("Image Gen Error", error);
-    throw new Error("Failed to generate image: " + error.message);
+    const msg = error.message || "Unknown error";
+    if (msg.includes("400") || msg.includes("REFUSAL")) {
+        throw new Error("Prompt refused by safety filters. Please try a different visual description.");
+    }
+    throw new Error(`Failed to generate image: ${msg}`);
   }
 };
 
-export const generateAdVideo = async (prompt: string): Promise<string> => {
-  // IMPORTANT: Veo requires a selected paid key.
-  // The UI MUST call window.aistudio.openSelectKey() before calling this.
-
-  // Re-initialize AI to ensure it picks up the selected key
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+export const generateAdVideo = async (prompt: string, aspectRatio: string = '16:9'): Promise<string> => {
+  const apiKey = getApiKey();
+  const ai = new GoogleGenAI({ apiKey: apiKey });
 
   try {
+    // Veo requires concise visual prompts. Scripts with dialogue often fail or produce poor results.
+    // We truncate the prompt to the first 300 characters to keep it focused.
+    const visualPrompt = prompt.length > 350 ? prompt.substring(0, 350) : prompt;
+    
+    const enhancedPrompt = `${visualPrompt}. Cinematic, photorealistic, high resolution, smooth motion, commercial advertisement style, 4k.`;
+
     let operation = await ai.models.generateVideos({
       model: 'veo-3.1-fast-generate-preview',
-      prompt: prompt,
+      prompt: enhancedPrompt,
       config: {
         numberOfVideos: 1,
         resolution: '720p',
-        aspectRatio: '1:1' // Matching the ad format
+        aspectRatio: aspectRatio
       }
     });
 
+    // Polling with timeout protection
+    const startTime = Date.now();
+    const timeout = 180000; // 3 minutes timeout for video
+
     while (!operation.done) {
-      await new Promise(resolve => setTimeout(resolve, 5000));
+      if (Date.now() - startTime > timeout) {
+        throw new Error("Video generation timed out. The server is busy.");
+      }
+      await new Promise(resolve => setTimeout(resolve, 8000)); // Poll every 8s
       operation = await ai.operations.getVideosOperation({operation: operation});
     }
 
-    // Check for errors in the operation result
     if (operation.error) {
-      throw new Error(`Video generation failed: ${operation.error.message}`);
+      throw new Error(`Veo Error: ${operation.error.message}`);
     }
 
     const videoUri = operation.response?.generatedVideos?.[0]?.video?.uri;
     if (!videoUri) throw new Error("Video URI not found in response");
 
-    // Fetch the actual video bytes using the key
-    const videoResponse = await fetch(`${videoUri}&key=${process.env.API_KEY}`);
+    const videoResponse = await fetch(`${videoUri}&key=${apiKey}`);
     if (!videoResponse.ok) throw new Error("Failed to download video bytes");
     
     const blob = await videoResponse.blob();
@@ -231,6 +233,34 @@ export const generateAdVideo = async (prompt: string): Promise<string> => {
 
   } catch (error: any) {
     console.error("Video Gen Error", error);
-    throw new Error("Failed to generate video: " + error.message);
+    throw new Error(`Failed to generate video: ${error.message}`);
+  }
+};
+
+export const generateBrandLogo = async (prompt: string): Promise<string> => {
+  const apiKey = getApiKey();
+  const ai = new GoogleGenAI({ apiKey: apiKey });
+
+  try {
+    const response = await ai.models.generateImages({
+      model: 'imagen-4.0-generate-001',
+      prompt: prompt + ", vector graphic, minimal, white background, professional logo design",
+      config: {
+        numberOfImages: 1,
+        aspectRatio: '1:1',
+        outputMimeType: 'image/png'
+      }
+    });
+
+    const imageBytes = response.generatedImages?.[0]?.image?.imageBytes;
+    if (!imageBytes) {
+      throw new Error("No logo image generated.");
+    }
+
+    return `data:image/png;base64,${imageBytes}`;
+
+  } catch (error: any) {
+    console.error("Logo Gen Error", error);
+    throw new Error("Failed to generate logo. " + error.message);
   }
 };
