@@ -1,9 +1,10 @@
+
 import React, { useState, useCallback } from 'react';
-import { Upload, Link, Type, X, Zap } from 'lucide-react';
-import { InputType } from '../types';
+import { Upload, Link, Type, X, Zap, Plus, Globe } from 'lucide-react';
+import { InputType, TargetLanguage } from '../types';
 
 interface InputSectionProps {
-  onGenerate: (text: string, image: string | null, url: string | null) => void;
+  onGenerate: (text: string, images: string[] | null, url: string | null, language: TargetLanguage) => void;
   isLoading: boolean;
 }
 
@@ -11,38 +12,49 @@ export const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoadin
   const [activeTab, setActiveTab] = useState<InputType>(InputType.TEXT);
   const [inputText, setInputText] = useState('');
   const [inputUrl, setInputUrl] = useState('');
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [language, setLanguage] = useState<TargetLanguage>('English');
+  
+  // Manage array of selected images
+  const [selectedImages, setSelectedImages] = useState<string[]>([]);
+  const [previewUrls, setPreviewUrls] = useState<string[]>([]);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const result = reader.result as string;
-        setPreviewUrl(result);
-        // Extract base64 data only (remove prefix)
-        const base64 = result.split(',')[1];
-        setSelectedImage(base64);
-      };
-      reader.readAsDataURL(file);
+    const files = e.target.files;
+    if (files) {
+      const remainingSlots = 4 - selectedImages.length;
+      if (remainingSlots <= 0) return;
+
+      const filesArray = Array.from(files).slice(0, remainingSlots) as File[];
+      
+      filesArray.forEach(file => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const result = reader.result as string;
+          const base64 = result.split(',')[1];
+          
+          setPreviewUrls(prev => [...prev, result]);
+          setSelectedImages(prev => [...prev, base64]);
+        };
+        reader.readAsDataURL(file);
+      });
     }
   };
 
-  const clearImage = () => {
-    setSelectedImage(null);
-    setPreviewUrl(null);
+  const removeImage = (index: number) => {
+    setPreviewUrls(prev => prev.filter((_, i) => i !== index));
+    setSelectedImages(prev => prev.filter((_, i) => i !== index));
   };
 
   const handleSubmit = () => {
     if (activeTab === InputType.URL && !inputUrl) return;
     if (activeTab === InputType.TEXT && !inputText) return;
-    if (activeTab === InputType.IMAGE && !selectedImage) return;
+    if (activeTab === InputType.IMAGE && selectedImages.length === 0) return;
 
     onGenerate(
       inputText, 
-      activeTab === InputType.IMAGE ? selectedImage : null, 
-      activeTab === InputType.URL ? inputUrl : null
+      activeTab === InputType.IMAGE ? selectedImages : null, 
+      activeTab === InputType.URL ? inputUrl : null,
+      language
     );
   };
 
@@ -65,7 +77,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoadin
           }`}
         >
           <Upload className="h-4 w-4" />
-          Product Image
+          Product Images
         </button>
         <button
           onClick={() => setActiveTab(InputType.URL)}
@@ -82,9 +94,14 @@ export const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoadin
         {activeTab === InputType.TEXT && (
           <textarea
             className="w-full h-32 bg-slate-900 border border-slate-600 rounded-lg p-4 text-white placeholder-slate-500 focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
-            placeholder="Describe your product or service in detail. What is it? Who is it for? What problem does it solve?"
+            placeholder={
+                language === 'Français' ? "Décrivez votre produit ou service en détail..." :
+                language === 'العربية' ? "صف منتجك أو خدمتك بالتفصيل..." :
+                "Describe your product or service in detail..."
+            }
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
+            dir={language === 'العربية' || language === 'Darija (Morocco)' ? 'rtl' : 'ltr'}
           />
         )}
 
@@ -108,43 +125,78 @@ export const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoadin
 
         {activeTab === InputType.IMAGE && (
           <div className="space-y-4">
-            {!previewUrl ? (
-              <div className="border-2 border-dashed border-slate-600 rounded-lg p-8 flex flex-col items-center justify-center hover:border-indigo-500 hover:bg-slate-900/50 transition-all cursor-pointer relative">
-                 <input 
-                    type="file" 
-                    accept="image/*" 
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                    onChange={handleImageUpload}
-                 />
-                <Upload className="h-10 w-10 text-slate-400 mb-4" />
-                <p className="text-slate-300 font-medium">Click to upload or drag and drop</p>
-                <p className="text-slate-500 text-sm mt-2">PNG, JPG up to 10MB</p>
-              </div>
-            ) : (
-              <div className="relative rounded-lg overflow-hidden border border-slate-600 bg-slate-900 group">
-                <img src={previewUrl} alt="Preview" className="w-full h-64 object-contain" />
-                <button 
-                  onClick={clearImage}
-                  className="absolute top-2 right-2 bg-black/70 text-white p-2 rounded-full hover:bg-red-600 transition-colors"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {previewUrls.map((url, idx) => (
+                    <div key={idx} className="relative rounded-lg overflow-hidden border border-slate-600 bg-slate-900 group aspect-square">
+                        <img src={url} alt={`Preview ${idx}`} className="w-full h-full object-cover" />
+                        <button 
+                            onClick={() => removeImage(idx)}
+                            className="absolute top-1 right-1 bg-black/70 text-white p-1 rounded-full hover:bg-red-600 transition-colors"
+                        >
+                            <X className="h-3 w-3" />
+                        </button>
+                    </div>
+                ))}
+
+                {previewUrls.length < 4 && (
+                    <div className="border-2 border-dashed border-slate-600 rounded-lg flex flex-col items-center justify-center hover:border-indigo-500 hover:bg-slate-900/50 transition-all cursor-pointer relative aspect-square">
+                        <input 
+                            type="file" 
+                            accept="image/*" 
+                            multiple
+                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                            onChange={handleImageUpload}
+                            disabled={previewUrls.length >= 4}
+                        />
+                        <Plus className="h-8 w-8 text-slate-400 mb-2" />
+                        <span className="text-slate-400 text-xs font-medium">Add Image</span>
+                        <span className="text-slate-600 text-[10px]">{previewUrls.length}/4</span>
+                    </div>
+                )}
+            </div>
+
+            {previewUrls.length === 0 && (
+                <div className="text-center text-slate-500 text-sm">
+                    Upload up to 4 product images for better AI analysis.
+                </div>
             )}
+
             <textarea
               className="w-full h-20 bg-slate-900 border border-slate-600 rounded-lg p-4 text-white placeholder-slate-500 focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
-              placeholder="Add specific instructions (e.g., 'Target Gen Z, make it humorous')"
+              placeholder="Add specific instructions..."
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
+              dir={language === 'العربية' || language === 'Darija (Morocco)' ? 'rtl' : 'ltr'}
             />
           </div>
         )}
 
-        <div className="mt-6 flex justify-end">
+        <div className="mt-6 flex flex-col md:flex-row items-center justify-end gap-4">
+          
+          {/* Language Selector */}
+          <div className="flex items-center gap-2 bg-slate-900 px-3 py-2 rounded-lg border border-slate-700 w-full md:w-auto">
+             <Globe className="h-4 w-4 text-slate-400" />
+             <select 
+                value={language} 
+                onChange={(e) => setLanguage(e.target.value as TargetLanguage)}
+                className="bg-transparent text-sm text-white font-medium outline-none border-none cursor-pointer w-full md:w-32"
+             >
+                <option value="English">English</option>
+                <option value="Français">Français</option>
+                <option value="العربية">العربية</option>
+                <option value="Darija (Morocco)">Darija (Morocco)</option>
+             </select>
+          </div>
+
           <button
             onClick={handleSubmit}
-            disabled={isLoading || (activeTab === InputType.TEXT && !inputText) || (activeTab === InputType.URL && !inputUrl) || (activeTab === InputType.IMAGE && !selectedImage)}
-            className={`px-6 py-3 rounded-lg font-semibold text-white shadow-lg transition-all flex items-center gap-2 ${
+            disabled={
+                isLoading || 
+                (activeTab === InputType.TEXT && !inputText) || 
+                (activeTab === InputType.URL && !inputUrl) || 
+                (activeTab === InputType.IMAGE && selectedImages.length === 0)
+            }
+            className={`w-full md:w-auto px-6 py-3 rounded-lg font-semibold text-white shadow-lg transition-all flex items-center justify-center gap-2 ${
               isLoading 
                 ? 'bg-slate-600 cursor-not-allowed' 
                 : 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 hover:shadow-indigo-500/25'
@@ -156,12 +208,12 @@ export const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoadin
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
-                Analyzing & Generating...
+                {language === 'Français' ? 'Génération...' : language === 'العربية' ? 'جاري التوليد...' : 'Generating...'}
               </>
             ) : (
               <>
                 <Zap className="h-5 w-5" />
-                Generate Campaign
+                {language === 'Français' ? 'Générer Campagne' : language === 'العربية' ? 'إنشاء الحملة' : 'Generate Campaign'}
               </>
             )}
           </button>
