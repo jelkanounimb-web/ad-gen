@@ -1,5 +1,7 @@
 {
   "name": "AdGen Master",
   "description": "A comprehensive SaaS application that generates complete advertising campaigns (Strategy, Copy, Visual Prompts, Video Scripts) from a single image, text, or URL input using Gemini 2.5 Flash and Pro models.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [
+    "microphone"
+  ]
 }

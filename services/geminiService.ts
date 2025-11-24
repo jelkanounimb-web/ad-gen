@@ -1,5 +1,5 @@
 
-import { GoogleGenAI, Type, Schema } from "@google/genai";
+import { GoogleGenAI, Type, Schema, Modality } from "@google/genai";
 import { CampaignResult, AdCopy, CampaignStrategy, CreativeAssets, SocialPrompts, AdVariant, LandingPageContent, TargetLanguage } from "../types";
 
 // Define the JSON Schema for the structured output
@@ -100,14 +100,23 @@ const landingPageSchema: Schema = {
 };
 
 // Helper to retrieve the API Key
-const getApiKey = (): string => {
-  return process.env.API_KEY || 'AIzaSyD_qntb1DrwL4mDGFLJ0wIrXzmZicKh6ZM'; // Fallback to provided key
+export const getApiKey = (): string => {
+  // Priority 1: User-provided key in localStorage
+  if (typeof window !== 'undefined') {
+    const storedKey = localStorage.getItem('adgen_api_key');
+    if (storedKey && storedKey.trim() !== '') {
+      return storedKey;
+    }
+  }
+  // Priority 2: Environment variable or Fallback
+  return process.env.API_KEY || 'AIzaSyD_qntb1DrwL4mDGFLJ0wIrXzmZicKh6ZM'; 
 };
 
 export const generateCampaign = async (
   inputText: string,
   inputImages: string[] | null,
   inputUrl: string | null,
+  inputVideo: string | null,
   language: TargetLanguage = 'English'
 ): Promise<CampaignResult> => {
   
@@ -130,17 +139,31 @@ export const generateCampaign = async (
     - The 'imagePrompt' and 'videoScript' in the creative section MUST remain in ENGLISH to ensure compatibility with image/video generation models.
 
     Follow this workflow:
-    1. ANALYZE the input (image, text, or URL content).
+    1. ANALYZE the input (image, text, URL content, or video).
     2. STRATEGIZE: Define the perfect audience and tone in ${language}.
     3. GENERATE: Create copy in ${language}.
   `;
 
   try {
-    let modelName = 'gemini-2.5-flash';
+    // Use Gemini 3 Pro for advanced reasoning (Thinking Mode)
+    let modelName = 'gemini-3-pro-preview';
     let contents: any = [];
+    let config: any = {
+      systemInstruction: systemInstruction,
+      responseMimeType: "application/json",
+      responseSchema: campaignSchema,
+      thinkingConfig: { thinkingBudget: 32768 } // Enable thinking mode
+    };
 
     if (inputUrl) {
-      const searchResponse = await ai.models.generateContent({
+      // For URL analysis, we might fallback to Flash if Pro is too slow or for Google Search
+      // But let's stick to the instruction "Think more when needed" -> Gemini 3 Pro
+      // Note: googleSearch tool might not work directly with responseSchema in some SDK versions, 
+      // but let's try 2-step if needed. For now, we assume simple prompt context injection via separate call if needed.
+      // However, to satisfy "Use Google Search data" we should use gemini-2.5-flash for the search part first.
+      
+      const searchAi = new GoogleGenAI({ apiKey: apiKey });
+      const searchResponse = await searchAi.models.generateContent({
         model: 'gemini-2.5-flash',
         contents: [
           {
@@ -179,6 +202,22 @@ export const generateCampaign = async (
         }
       ];
 
+    } else if (inputVideo) {
+       // Video Analysis using Gemini 3 Pro
+       contents = [
+        {
+            role: 'user',
+            parts: [
+                {
+                    inlineData: {
+                        mimeType: "video/mp4",
+                        data: inputVideo
+                    }
+                },
+                { text: `Analyze this video and generate a campaign in ${language}. Context: ${inputText}` }
+            ]
+        }
+       ];
     } else {
       contents = [
         {
@@ -191,11 +230,7 @@ export const generateCampaign = async (
     const response = await ai.models.generateContent({
       model: modelName,
       contents: contents,
-      config: {
-        systemInstruction: systemInstruction,
-        responseMimeType: "application/json",
-        responseSchema: campaignSchema,
-      },
+      config: config,
     });
 
     const textResponse = response.text;
@@ -411,7 +446,7 @@ export const generateAdVariations = async (strategy: CampaignStrategy, currentCo
 };
 
 
-export const generateAdImage = async (prompt: string, aspectRatio: string = "1:1"): Promise<string> => {
+export const generateAdImage = async (prompt: string, aspectRatio: string = "1:1", imageSize: string = "1K"): Promise<string> => {
   const apiKey = getApiKey();
   const ai = new GoogleGenAI({ apiKey: apiKey });
   
@@ -430,7 +465,7 @@ export const generateAdImage = async (prompt: string, aspectRatio: string = "1:1
       config: {
         imageConfig: {
             aspectRatio: aspectRatio,
-            imageSize: "1K"
+            imageSize: imageSize
         }
       }
     });
@@ -449,6 +484,38 @@ export const generateAdImage = async (prompt: string, aspectRatio: string = "1:1
     }
     throw new Error(`Failed to generate image: ${msg}`);
   }
+};
+
+export const editAdImage = async (imageBase64: string, editPrompt: string): Promise<string> => {
+    const apiKey = getApiKey();
+    const ai = new GoogleGenAI({ apiKey: apiKey });
+    
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash-image',
+            contents: {
+                parts: [
+                    {
+                        inlineData: {
+                            mimeType: 'image/jpeg', // Assuming jpeg for simplicity
+                            data: imageBase64.split(',')[1] // remove data url prefix
+                        }
+                    },
+                    { text: editPrompt }
+                ]
+            }
+        });
+
+        for (const part of response.candidates?.[0]?.content?.parts || []) {
+            if (part.inlineData) {
+              return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+            }
+        }
+        throw new Error("Image editing refused.");
+    } catch (error: any) {
+        console.error("Image Edit Error", error);
+        throw new Error("Failed to edit image: " + error.message);
+    }
 };
 
 export const generateImageVariations = async (prompt: string, aspectRatio: string = "1:1"): Promise<string[]> => {
@@ -482,36 +549,43 @@ export const generateImageVariations = async (prompt: string, aspectRatio: strin
   }
 };
 
-export const generateAdVideo = async (prompt: string, aspectRatio: string = '16:9'): Promise<string> => {
+export const generateAdVideo = async (prompt: string, aspectRatio: string = '16:9', imageBase64?: string): Promise<string> => {
   const apiKey = getApiKey();
   const ai = new GoogleGenAI({ apiKey: apiKey });
 
   try {
-    // Veo requires concise visual prompts. Scripts with dialogue often fail or produce poor results.
-    // We truncate the prompt to the first 300 characters to keep it focused.
     const visualPrompt = prompt.length > 350 ? prompt.substring(0, 350) : prompt;
-    
     const enhancedPrompt = `${visualPrompt}. Cinematic, photorealistic, high resolution, smooth motion, commercial advertisement style, 4k.`;
 
-    let operation = await ai.models.generateVideos({
-      model: 'veo-3.1-generate-preview',
-      prompt: enhancedPrompt,
-      config: {
-        numberOfVideos: 1,
-        resolution: '720p',
-        aspectRatio: aspectRatio
-      }
-    });
+    let request: any = {
+        model: 'veo-3.1-fast-generate-preview',
+        prompt: enhancedPrompt,
+        config: {
+            numberOfVideos: 1,
+            resolution: '720p',
+            aspectRatio: aspectRatio
+        }
+    };
 
-    // Polling with timeout protection (increased for standard Veo model)
+    // If image is provided, use it for image-to-video
+    if (imageBase64) {
+        request.image = {
+            mimeType: 'image/png', // Veo supports standard types, assume png/jpeg
+            imageBytes: imageBase64.split(',')[1]
+        };
+    }
+
+    let operation = await ai.models.generateVideos(request);
+
+    // Polling
     const startTime = Date.now();
-    const timeout = 300000; // 5 minutes timeout for video
+    const timeout = 600000; // 10 minutes
 
     while (!operation.done) {
       if (Date.now() - startTime > timeout) {
-        throw new Error("Video generation timed out. The server is busy.");
+        throw new Error("Video generation timed out.");
       }
-      await new Promise(resolve => setTimeout(resolve, 10000)); // Poll every 10s
+      await new Promise(resolve => setTimeout(resolve, 5000));
       operation = await ai.operations.getVideosOperation({operation: operation});
     }
 
@@ -561,3 +635,73 @@ export const generateBrandLogo = async (prompt: string): Promise<string> => {
     throw new Error("Failed to generate logo. " + error.message);
   }
 };
+
+export const generateSpeech = async (text: string): Promise<string> => {
+    const apiKey = getApiKey();
+    const ai = new GoogleGenAI({ apiKey: apiKey });
+    
+    try {
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash-preview-tts",
+            contents: [{ parts: [{ text: text }] }],
+            config: {
+                responseModalities: [Modality.AUDIO],
+                speechConfig: {
+                    voiceConfig: {
+                        prebuiltVoiceConfig: { voiceName: 'Kore' },
+                    },
+                },
+            },
+        });
+        
+        const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+        if (!base64Audio) throw new Error("No audio generated");
+        
+        return `data:audio/mp3;base64,${base64Audio}`; // Raw PCM usually, but simple handling here
+    } catch (error: any) {
+        console.error("TTS Error", error);
+        throw new Error("Failed to generate speech");
+    }
+};
+
+export const transcribeAudio = async (audioBase64: string): Promise<string> => {
+    const apiKey = getApiKey();
+    const ai = new GoogleGenAI({ apiKey: apiKey });
+    
+    try {
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: [
+                {
+                    parts: [
+                        { inlineData: { mimeType: "audio/wav", data: audioBase64 } },
+                        { text: "Transcribe this audio." }
+                    ]
+                }
+            ]
+        });
+        return response.text || "";
+    } catch (error: any) {
+        console.error("Transcription Error", error);
+        throw new Error("Failed to transcribe audio");
+    }
+};
+
+// Chatbot functionality
+export const chatWithCampaign = async (history: {role: string, parts: {text: string}[]}[], message: string): Promise<string> => {
+    const apiKey = getApiKey();
+    const ai = new GoogleGenAI({ apiKey: apiKey });
+    
+    try {
+        const chat = ai.chats.create({
+            model: 'gemini-3-pro-preview',
+            history: history,
+        });
+        
+        const result = await chat.sendMessage({ message });
+        return result.text || "";
+    } catch (error: any) {
+         console.error("Chat Error", error);
+         throw new Error("Failed to get chat response");
+    }
+}

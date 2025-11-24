@@ -3,6 +3,8 @@ export enum InputType {
   TEXT = 'TEXT',
   IMAGE = 'IMAGE',
   URL = 'URL',
+  VIDEO = 'VIDEO',
+  AUDIO = 'AUDIO'
 }
 
 export type TargetLanguage = 'English' | 'Français' | 'العربية' | 'Darija (Morocco)';

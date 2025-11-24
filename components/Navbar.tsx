@@ -1,13 +1,15 @@
+
 import React from 'react';
-import { Zap, Layers, History, LayoutTemplate, Menu } from 'lucide-react';
+import { Zap, Layers, History, LayoutTemplate, Menu, Settings } from 'lucide-react';
 
 interface NavbarProps {
   onToggleHistory: () => void;
+  onToggleSettings: () => void;
   currentView: 'CAMPAIGN' | 'LANDING';
   onSwitchView: (view: 'CAMPAIGN' | 'LANDING') => void;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({ onToggleHistory, currentView, onSwitchView }) => {
+export const Navbar: React.FC<NavbarProps> = ({ onToggleHistory, onToggleSettings, currentView, onSwitchView }) => {
   return (
     <nav className="bg-slate-900 border-b border-slate-800 sticky top-0 z-50 backdrop-blur-md bg-opacity-80">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -54,6 +56,13 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleHistory, currentView, on
 
           {/* Right Actions */}
           <div className="flex items-center gap-2 md:gap-4 flex-shrink-0 pl-2">
+            <button
+                onClick={onToggleSettings}
+                className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors px-2 py-1.5 rounded-md hover:bg-slate-800"
+                title="Settings / API Key"
+            >
+                <Settings className="h-5 w-5" />
+            </button>
             <button 
               onClick={onToggleHistory}
               className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors px-2 md:px-3 py-1.5 rounded-md hover:bg-slate-800"
