@@ -452,6 +452,13 @@ export const ResultsDashboard: React.FC<ResultsDashboardProps> = ({ data }) => {
                     {isGeneratingImage ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />} Generate
                 </button>
              </div>
+             {adImage && (
+                <div className="flex justify-end">
+                    <button onClick={handleGenerateVariations} disabled={isGeneratingVariations} className="text-xs text-purple-400 hover:text-purple-300 flex items-center gap-1">
+                        {isGeneratingVariations ? <Loader2 className="h-3 w-3 animate-spin" /> : <Layers className="h-3 w-3" />} Variations
+                    </button>
+                </div>
+             )}
              <div className="p-3 bg-slate-950 rounded border border-slate-800 text-sm font-mono text-green-400 max-h-32 overflow-y-auto">
                  {data.creative.imagePrompt}
              </div>
@@ -491,12 +498,25 @@ export const ResultsDashboard: React.FC<ResultsDashboardProps> = ({ data }) => {
       {/* 4. Video Script */}
       <Card title="Video Script" icon={<Video className="h-5 w-5" />} className="lg:col-span-2">
          <div className="space-y-4">
-            <div className="flex gap-2 items-center">
+            <div className="flex flex-wrap gap-2 items-center">
                 <button onClick={handleGenerateSpeech} disabled={isGeneratingSpeech} className="p-2 bg-slate-700 rounded hover:bg-slate-600 text-slate-300">
                     {isGeneratingSpeech ? <Loader2 className="h-4 w-4 animate-spin"/> : <Volume2 className="h-4 w-4"/>}
                 </button>
                 {ttsAudio && <audio src={ttsAudio} controls className="h-8 w-40" />}
                 <div className="flex-1"></div>
+                 <select value={videoAspectRatio} onChange={(e) => setVideoAspectRatio(e.target.value as any)} className="bg-slate-900 text-xs text-white border border-slate-700 rounded p-2">
+                    <option value="16:9">16:9 Landscape</option>
+                    <option value="9:16">9:16 Portrait</option>
+                </select>
+                <div className="flex items-center gap-1">
+                    <input 
+                        type="text" 
+                        value={videoCta} 
+                        onChange={(e) => setVideoCta(e.target.value)} 
+                        placeholder="CTA Text" 
+                        className="bg-slate-900 border border-slate-700 rounded p-2 text-xs text-white w-24"
+                    />
+                </div>
                 <button onClick={() => { setActiveTab('VIDEO'); handleGenerateVideo(); }} disabled={isGeneratingVideo} className="bg-indigo-600 text-white text-xs px-3 py-2 rounded flex items-center gap-1">
                     {isGeneratingVideo ? <Loader2 className="h-3 w-3 animate-spin" /> : <Film className="h-3 w-3" />} Generate (Veo)
                 </button>
@@ -507,7 +527,70 @@ export const ResultsDashboard: React.FC<ResultsDashboardProps> = ({ data }) => {
          </div>
       </Card>
 
-      {/* 5. Live Preview */}
+      {/* 5. Dynamic Ad Variations (DCO) - NEW SECTION */}
+      <Card
+        title="Dynamic Ad Variations (DCO)"
+        icon={<Layers className="h-5 w-5" />}
+        className="lg:col-span-3"
+        action={
+          adVariations && (
+            <button onClick={handleDownloadVariations} className="text-xs flex gap-1 items-center text-slate-400 hover:text-white border border-slate-700 px-2 py-1 rounded">
+              <Download className="h-3 w-3" /> Download .txt
+            </button>
+          )
+        }
+      >
+        {!adVariations ? (
+           <div className="flex flex-col items-center justify-center py-8 text-center space-y-4">
+               <p className="text-slate-400 text-sm max-w-lg">
+                   Generate 5 distinct ad angles (Pain, Social Proof, FOMO, etc.) optimized for Meta Advantage+ and Google Performance Max algorithms.
+               </p>
+               <button
+                   onClick={handleGenerateAdVariations}
+                   disabled={isGeneratingAdVariations}
+                   className="bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-2 rounded-lg font-bold shadow-lg flex items-center gap-2"
+               >
+                   {isGeneratingAdVariations ? <Loader2 className="animate-spin h-4 w-4"/> : <Sparkles className="h-4 w-4"/>}
+                   Generate 5 Variations
+               </button>
+           </div>
+        ) : (
+           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+               {adVariations.map((variant, idx) => (
+                   <div key={idx} className="bg-slate-900 border border-slate-700 rounded-lg p-4 hover:border-indigo-500/50 transition-colors">
+                       <div className="flex justify-between items-start mb-3">
+                           <span className="bg-indigo-900/50 text-indigo-300 text-xs font-bold px-2 py-1 rounded border border-indigo-500/30 uppercase tracking-wider">{variant.angle}</span>
+                           <div className="flex gap-1 flex-wrap justify-end max-w-[50%]">
+                               {variant.platforms.map((p, i) => (
+                                   <span key={i} className="text-[10px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded border border-slate-700">{p}</span>
+                               ))}
+                           </div>
+                       </div>
+                       <div className="space-y-3">
+                           <div>
+                               <p className="text-[10px] text-slate-500 font-bold uppercase mb-1">Headline</p>
+                               <p className="text-white text-sm font-semibold leading-tight">{variant.headline}</p>
+                           </div>
+                           <div>
+                               <p className="text-[10px] text-slate-500 font-bold uppercase mb-1">Primary Text</p>
+                               <p className="text-slate-300 text-xs leading-relaxed">{variant.primaryText}</p>
+                           </div>
+                            <div>
+                               <p className="text-[10px] text-slate-500 font-bold uppercase mb-1">Target Platforms</p>
+                               <div className="flex flex-wrap gap-1">
+                                   {variant.platforms.map((p, i) => (
+                                       <span key={i} className="text-[10px] text-slate-400">{p}{i < variant.platforms.length - 1 ? ', ' : ''}</span>
+                                   ))}
+                               </div>
+                           </div>
+                       </div>
+                   </div>
+               ))}
+           </div>
+        )}
+      </Card>
+
+      {/* 6. Live Preview */}
       <div id="live-preview" className="lg:col-span-3 mt-6 border-t border-slate-700 pt-8">
          <div className="flex justify-center gap-4 mb-6">
              <button onClick={() => setActiveTab('IMAGE')} className={`px-4 py-2 rounded font-bold ${activeTab === 'IMAGE' ? 'bg-slate-700 text-white' : 'text-slate-400'}`}>Image</button>
@@ -575,11 +658,60 @@ export const ResultsDashboard: React.FC<ResultsDashboardProps> = ({ data }) => {
          </div>
       </div>
       
+      {/* Variations Grid */}
+      {imageVariations.length > 0 && (
+          <div className="lg:col-span-3 mt-6">
+              <h3 className="text-white font-bold mb-4 flex items-center gap-2"><Layers className="h-4 w-4"/> Image Variations</h3>
+              <div className="grid grid-cols-3 gap-4">
+                  {imageVariations.map((src, i) => (
+                      <div key={i} className="rounded-lg overflow-hidden border border-slate-700 bg-slate-900 relative group cursor-pointer" onClick={() => { setAdImage(src); setActiveTab('IMAGE'); document.getElementById('live-preview')?.scrollIntoView({behavior:'smooth'}); }}>
+                          <img src={src} className="w-full h-full object-cover hover:opacity-80 transition-opacity"/>
+                          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 bg-black/40 transition-opacity">
+                              <span className="text-white text-xs font-bold border border-white px-2 py-1 rounded">Select</span>
+                          </div>
+                      </div>
+                  ))}
+              </div>
+          </div>
+      )}
+
+      {/* Social Prompts */}
+      {socialPrompts && (
+          <div className="lg:col-span-3 mt-6">
+              <Card title="Social Media Adaptations" icon={<Share2 className="h-5 w-5"/>} action={<button onClick={handleGenerateSocial} className="text-xs text-slate-400 hover:text-white flex items-center gap-1"><RefreshCw className={isGeneratingSocial ? 'animate-spin h-3 w-3' : 'h-3 w-3'}/> Regenerate</button>}>
+                  <div className="grid md:grid-cols-3 gap-6">
+                      <div className="bg-slate-900 p-4 rounded-lg border border-slate-700">
+                          <h4 className="text-purple-400 font-bold text-sm mb-2 flex items-center gap-2"><Instagram className="h-4 w-4"/> Instagram Story</h4>
+                          <p className="text-slate-300 text-xs whitespace-pre-wrap">{socialPrompts.instagramStory}</p>
+                      </div>
+                      <div className="bg-slate-900 p-4 rounded-lg border border-slate-700">
+                          <h4 className="text-pink-400 font-bold text-sm mb-2 flex items-center gap-2"><Music2 className="h-4 w-4"/> TikTok</h4>
+                          <p className="text-slate-300 text-xs whitespace-pre-wrap">{socialPrompts.tikTok}</p>
+                      </div>
+                      <div className="bg-slate-900 p-4 rounded-lg border border-slate-700">
+                          <h4 className="text-red-400 font-bold text-sm mb-2 flex items-center gap-2"><Youtube className="h-4 w-4"/> YouTube Short</h4>
+                          <p className="text-slate-300 text-xs whitespace-pre-wrap">{socialPrompts.youTubeShort}</p>
+                      </div>
+                  </div>
+              </Card>
+          </div>
+      )}
+
       {/* Downloads */}
-      <div className="lg:col-span-3 flex justify-center mt-8">
-          <button onClick={handleDownloadAssets} disabled={isDownloading} className="bg-indigo-600 hover:bg-indigo-500 text-white px-8 py-3 rounded-lg font-bold shadow-lg flex items-center gap-2">
-              {isDownloading ? <Loader2 className="animate-spin"/> : <Download/>} Download All Assets
-          </button>
+      <div className="lg:col-span-3 flex justify-center mt-8 pb-12">
+          <div className="flex flex-col items-center gap-4 w-full">
+            <button onClick={handleDownloadAssets} disabled={isDownloading} className="bg-indigo-600 hover:bg-indigo-500 text-white px-8 py-3 rounded-lg font-bold shadow-lg flex items-center gap-2 min-w-[200px] justify-center">
+                {isDownloading ? <Loader2 className="animate-spin"/> : <Download/>} Download All Assets
+            </button>
+            <div className="flex gap-4">
+                <button onClick={handleExportJson} className="text-slate-400 hover:text-white text-sm flex items-center gap-1">
+                    <FileJson className="h-4 w-4"/> Export JSON
+                </button>
+                 <button onClick={handlePublish} disabled={isPublishing} className="text-slate-400 hover:text-green-400 text-sm flex items-center gap-1">
+                    {isPublishing ? <Loader2 className="h-4 w-4 animate-spin"/> : <Globe className="h-4 w-4"/>} {isPublishing ? publishStep : 'Publish (Simulation)'}
+                </button>
+            </div>
+          </div>
       </div>
 
     </div>
